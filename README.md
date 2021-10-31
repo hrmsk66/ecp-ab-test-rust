@@ -4,9 +4,9 @@ A Rust implementation of the solution on [this page](https://developer.fastly.co
 
 Fastly needs to know some things about the tests you want to run:
 
-- The number of tests and the name of each one
-- The number of possible buckets for each test and the relative weighting of each
-- The name of each bucket
+- A list of tests
+- A list of buckets in each tests
+- Relative weighting of each bucket
 
 This example assumes that test items are defined in the dictionary in the format like this.
 
