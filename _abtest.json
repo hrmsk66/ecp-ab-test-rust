@@ -1,13 +1,11 @@
 {
     "tests": "itemcount, buttonsize",
     "itemcount": {
-        "name": "itemcount",
-        "weight": "1:1",
-        "buckets": [ "10", "15" ]
+        "buckets": [ "10", "15" ],
+        "weight": "1:1"
     },
     "buttonsize": {
-        "name": "buttonsize",
-        "weight": "7:3:2",
-        "buckets": [ "small", "medium", "large" ]
+        "buckets": [ "small", "medium", "large" ],
+        "weight": "7:3:2"
     }
 }

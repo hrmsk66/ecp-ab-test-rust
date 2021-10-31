@@ -2,14 +2,12 @@
 // {
 //    "tests": "itemcount, buttonsize",
 //    "itemcount": {
-//        "name": "itemcount",
-//        "weight": "1:1",
-//        "buckets": [ "10", "15" ]
+//        "buckets": [ "10", "15" ],
+//        "weight": "1:1"
 //    },
 //    "buttonsize": {
-//        "name": "buttonsize",
-//        "weight": "7:3:2",
-//        "buckets": [ "small", "medium", "large" ]
+//        "buckets": [ "small", "medium", "large" ],
+//        "weight": "7:3:2"
 //    }
 //}
 use fastly::http::header::{CACHE_CONTROL, SET_COOKIE};
@@ -27,10 +25,9 @@ const COOKIE_NAME: &str = "ab_cid";
 
 #[derive(Debug, Deserialize)]
 struct ABTest {
-    name: String,
+    buckets: Vec<String>,
     #[serde(deserialize_with = "weight_deserializer")]
     weight: Vec<i32>,
-    buckets: Vec<String>,
 }
 
 // Custom deserializer to parse a weight ratio expression like "7:3:2" into Vec<i32>
@@ -59,6 +56,7 @@ struct ClientID {
 impl ClientID {
     fn new() -> Self {
         Self {
+            //id: "newly generated userid".to_string(),
             id: Uuid::new_v4().to_string(),
             is_new: true,
         }
@@ -96,11 +94,11 @@ fn stringify_cookie(cookie_jar: HashMap<String, String>) -> String {
         .join("; ")
 }
 
-fn create_rng(cid: &str, testname: &str) -> StdRng {
+fn create_rng(cid: &str, test_name: &str) -> StdRng {
     // Mapping a user to the same set of A/B test buckets
     // by generating a seed from a client ID and a test name.
     let digest1: [u8; 16] = md5::compute(cid).into();
-    let digest2: [u8; 16] = md5::compute(testname).into();
+    let digest2: [u8; 16] = md5::compute(test_name).into();
 
     let mut seed: [u8; 32] = Default::default();
     seed[..16].copy_from_slice(&digest1);
@@ -137,7 +135,7 @@ fn main(mut req: Request) -> Result<Response, Error> {
             match abtest_config.get(test_name) {
                 Some(v) => {
                     let abtest = serde_json::from_str::<ABTest>(&v).unwrap();
-                    let mut rng = create_rng(&cid.id, &abtest.name);
+                    let mut rng = create_rng(&cid.id, test_name);
 
                     // Pick a bucket according to the weight.
                     let dist = WeightedIndex::new(&abtest.weight).unwrap();
