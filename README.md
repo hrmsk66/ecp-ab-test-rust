@@ -16,12 +16,12 @@ This example assumes that test items are defined in the dictionary in the format
     "itemcount": {
         "name": "itemcount",
         "weight": "1:1",
-        "bucket_params": [ "10", "15" ]
+        "buckets": [ "10", "15" ]
     },
     "buttonsize": {
         "name": "buttonsize",
         "weight": "7:3:2",
-        "bucket_params": [ "small", "medium", "large" ]
+        "buckets": [ "small", "medium", "large" ]
     }
 }
 ```

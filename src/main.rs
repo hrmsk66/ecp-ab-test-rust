@@ -4,22 +4,22 @@
 //    "itemcount": {
 //        "name": "itemcount",
 //        "weight": "1:1",
-//        "bucket_params": [ "10", "15" ]
+//        "buckets": [ "10", "15" ]
 //    },
 //    "buttonsize": {
 //        "name": "buttonsize",
 //        "weight": "7:3:2",
-//        "bucket_params": [ "small", "medium", "large" ]
+//        "buckets": [ "small", "medium", "large" ]
 //    }
 //}
 use fastly::http::header::{CACHE_CONTROL, SET_COOKIE};
 use fastly::{Dictionary, Error, Request, Response};
-use rand::prelude::*;
 use rand::distributions::WeightedIndex;
+use rand::prelude::*;
 use rand::rngs::StdRng;
-use serde::Deserialize;
-use uuid::Uuid;
+use serde::{de, Deserialize, Deserializer};
 use std::collections::HashMap;
+use uuid::Uuid;
 
 const BACKEND_NAME: &str = "origin_0";
 const DICT_NAME: &str = "ab_config";
@@ -28,19 +28,27 @@ const COOKIE_NAME: &str = "ab_cid";
 #[derive(Debug, Deserialize)]
 struct ABTest {
     name: String,
-    #[serde(alias = "weight")]
-    raw_weight: String,
-    bucket_params: Vec<String>,
+    #[serde(deserialize_with = "weight_deserializer")]
+    weight: Vec<i32>,
+    buckets: Vec<String>,
 }
 
-// Todo. Implement custom deserializer and remove weitht().
-impl ABTest {
-    fn weight(&self) -> Vec<i32> {
-        self.raw_weight
-            .split(":")
-            .map(|n| n.parse().unwrap())
-            .collect()
+// Custom deserializer to parse a weight ratio expression like "7:3:2" into Vec<i32>
+fn weight_deserializer<'de, D>(deserializer: D) -> Result<Vec<i32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let weight_string = String::deserialize(deserializer)?;
+    let mut weights = vec![];
+    for w in weight_string.split(":") {
+        weights.push(w.parse::<i32>().map_err(|e| {
+            de::Error::custom(format!(
+                "str::parse::<i32> returned an error while parsing {}: {}",
+                weight_string, e
+            ))
+        })?)
     }
+    Ok(weights)
 }
 
 struct ClientID {
@@ -60,14 +68,15 @@ impl ClientID {
     }
     fn as_setcookie(&self) -> String {
         format!(
-            "{}={}; max-age=31536000; domain=.example.com; path=/; secure; httponly",
+            "{}={}; max-age=31536000; domain=example.com; path=/; secure; httponly",
             COOKIE_NAME, self.id
         )
     }
 }
 
 fn load_cookie(cookie: &str) -> HashMap<String, String> {
-    cookie.split(";")
+    cookie
+        .split(";")
         .filter_map(|kv| {
             kv.find("=").map(|index| {
                 let (key, value) = kv.split_at(index);
@@ -80,12 +89,11 @@ fn load_cookie(cookie: &str) -> HashMap<String, String> {
 }
 
 fn stringify_cookie(cookie_jar: HashMap<String, String>) -> String {
-    cookie_jar.iter()
+    cookie_jar
+        .iter()
         .map(|(k, v)| format!("{}={}", k, v))
-        .fold(String::new(), |mut acc, str| {
-            acc.push_str(&str);
-            acc
-        })
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 fn create_rng(cid: &str, testname: &str) -> StdRng {
@@ -103,7 +111,7 @@ fn create_rng(cid: &str, testname: &str) -> StdRng {
 
 #[fastly::main]
 fn main(mut req: Request) -> Result<Response, Error> {
-    let abtest_config = Dictionary::open("abtest_config");
+    let abtest_config = Dictionary::open(DICT_NAME);
     if let Some(t) = abtest_config.get("tests") {
         let tests: Vec<String> = t.split(",").map(|t| t.trim().to_string()).collect();
 
@@ -117,11 +125,11 @@ fn main(mut req: Request) -> Result<Response, Error> {
                     Some(id) => {
                         req.set_header("cookie", stringify_cookie(cookie_jar));
                         ClientID::from_id(id)
-                    },
+                    }
                     None => ClientID::new(),
                 }
-            },
-            None => ClientID::new()
+            }
+            None => ClientID::new(),
         };
 
         // Assign them a bucket for each test and add Fastly-ABTest-X headers to the origin request.
@@ -132,16 +140,19 @@ fn main(mut req: Request) -> Result<Response, Error> {
                     let mut rng = create_rng(&cid.id, &abtest.name);
 
                     // Pick a bucket according to the weight.
-                    let dist = WeightedIndex::new(&abtest.weight()).unwrap();
-                    let bucket_param = &abtest.bucket_params[dist.sample(&mut rng)];
+                    let dist = WeightedIndex::new(&abtest.weight).unwrap();
+                    let bucket = &abtest.buckets[dist.sample(&mut rng)];
 
-                    let header_value = format!("test={}, bucket={}", test_name, bucket_param);
+                    let header_value = format!("test={}, bucket={}", test_name, bucket);
                     println!("{}", header_value);
                     req.set_header(format!("Fastly-ABTest-{}", index + 1), header_value);
-                },
+                }
                 None => {
-                    eprintln!("{} is not found in the dictionary. Sending the request as-is.", test_name);
-                    return Ok(req.send(BACKEND_NAME)?)
+                    eprintln!(
+                        "{} is not found in the dictionary. Sending the request as-is.",
+                        test_name
+                    );
+                    return Ok(req.send(BACKEND_NAME)?);
                 }
             }
         }
